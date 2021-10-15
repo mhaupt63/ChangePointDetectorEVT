@@ -1,5 +1,5 @@
 # ChangePointDetector
- This module takes a time series and returns:  (a) the piecewise underlaying linear trend, and (b) the times where there is a change in the underlying trend
+ This module takes a time series and returns:  (a) the piecewise underlying linear trend, and (b) the times where there is a change in the underlying trend
  
  We use a Kalman Filter to find the piecewise underlying linear trend, with a state space representation of seasonality and an underlying linear trend.  We initialise the parameters of the Kalman filter using a Least Squares estimator out of "statsmodels'
  
