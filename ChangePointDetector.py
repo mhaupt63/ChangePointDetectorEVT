@@ -25,12 +25,13 @@ from scipy.stats.distributions import chi2
 from dateutil.relativedelta import relativedelta
 
 class ModuleResults:
-    def __init__(self,Trend,TrendVariance,ChangePoints,Prediction,ExtendedDates):
+    def __init__(self,Trend,TrendVariance,ChangePoints,Prediction,PredictionVariance,ExtendedDates):
             self.Trend=Trend
             self.TrendVariance=TrendVariance
             self.ChangePoints=ChangePoints
             self.Prediction=Prediction
             self.ExtendedDates=ExtendedDates
+            self.PredictionVariance=PredictionVariance
 
 class TimeSeriesData:
         def __init__(self,data,dates):
@@ -138,7 +139,7 @@ class MyKalmanFilter:
             start_params = [np.var(NormalisedData)**(i), 0.1]
             kf_model_fit = kf_model.fit(start_params,maxiter = 20,method = 'bfgs', hessian= 'true')
             Growth=[kf_model_fit.filtered_state[0,x] for x in range(kf_model_fit.filtered_state.shape[1])]
-            if np.mean((NormalisedData-Growth))/Base<.05:  #.08
+            if np.mean((NormalisedData-Growth))/Base<.2:  
                 Success =True
             i-=0.05
         
@@ -163,12 +164,14 @@ class ChangePointDetector:
     
     def ChangePointDetectorFunction(self):
     #This is the main function    
-        gs_orig=self.TimeseriesModel.KalmanModelFit.filtered_state[-1,:]  #Get underlying linear trend
+        gs_orig=self.TimeseriesModel.KalmanModelFit.filtered_state[-1,:]  #Get underlying trend
         gs=TimeSeriesData(gs_orig,self.ts.dates)
-        OnePeriodRegressionModel=MyKalmanFilter(gs,SeasonalityPeriods=0) #Single period autoregression of linear trend
+        OnePeriodRegressionModel=MyKalmanFilter(gs,SeasonalityPeriods=0)
         OnePeriodRegressionModel.InitialiseFilter()
         
-        #Get Mahalanobis distance between successive points in underlying trend
+        #Capture variance
+        
+        
         MDout,MD_Prob = [],[]
         DF=1
         for i in range(OnePeriodRegressionModel.KalmanModelFit.filtered_state.shape[1]):
@@ -199,11 +202,11 @@ class ChangePointDetector:
             EV_Old=1  #Prl1=1 when t=1
             #Iterate over a window expanding back to the last change point 
             for m in range(1,t-ChangePoint+1):
-                
+        
                 loc=sqrt(2*log(m+1))-(2*pi+log(log(m+1)))/(2*sqrt(log(m+1)))
                 scale=1/sqrt(2*log(m+1))
                 if m<=2:
-                    EV_conditionalm=exp(-exp(-(MDout[t-1])))  #Gumbel cdf
+                    EV_conditionalm=exp(-exp(-(MDout[t-1])))
                 else:
                     EV_conditionalm=exp(-exp(-(MDout[t-1]-loc)/scale))
         
@@ -219,7 +222,7 @@ class ChangePointDetector:
                 EV_Old=EV
             if   EV>0.95:  
                 EV=1
-                ChangePoint=t
+                ChangePoint=t-1
                 PrLmOld=0
                 EV_Old=1
         #         print('Change at ',t,MD_Prob[t-1])
@@ -228,8 +231,23 @@ class ChangePointDetector:
             EVMT.append(EV)
             
         ExtendedDates=list(self.ts.dates)
-        if self.TimeseriesModel.K_gain[-1,0]<0.65 and not sum([i > len(self.ts.data)-4 for i in ChangePoints]):
-            Prediction=self.TimeseriesModel.KalmanModelFit.predict(0,len(self.ts.data)+3)
+        #Do forecast if no change points in last 3 periods
+        if  not sum([i > len(self.ts.data)-3 for i in ChangePoints]):
+            #Start with historical data
+            Prediction=self.TimeseriesModel.KalmanModelFit.predict(0,len(self.ts.data))
+            
+            #Take average of last 3 growth factors
+            Trend=[self.TimeseriesModel.KalmanModelFit.filtered_state[1,x] for x in range(self.TimeseriesModel.KalmanModelFit.filtered_state.shape[1])]
+            if abs(Trend[-1])<abs(sum(Trend[-3:])/3):
+                AverageGrowth=Trend[-1]
+            else:
+                AverageGrowth=sum(Trend[-3:])/3                 
+            
+            #Add forecast to historical data
+            for i in range(3):
+                Prediction=np.append(Prediction,Prediction[-1]+AverageGrowth)
+            
+            #Prediction=self.TimeseriesModel.KalmanModelFit.predict(0,len(self.ts.data)+3)
             #add extra dates
             
             Period= self.ts.Period
@@ -241,11 +259,17 @@ class ChangePointDetector:
                 else:
                     NextDate=self.ts.dates[-1]+relativedelta(days=i+1)
                 ExtendedDates.append(NextDate)
+                
+            PredictionVariance=self.TimeseriesModel.KalmanModelFit.get_prediction(0,len(self.ts.data)+3).var_pred_mean
         else:
             Prediction=self.TimeseriesModel.KalmanModelFit.predict(0,len(self.ts.data))
+            PredictionVariance=self.TimeseriesModel.KalmanModelFit.get_prediction(0,len(self.ts.data)).var_pred_mean
             ExtendedDates=self.ts.dates
         
         Prediction=Prediction*np.linalg.norm(self.ts.data)
+        
+        
+        PredictionVariance=PredictionVariance*np.linalg.norm(self.ts.data)
         
         Trend=[self.TimeseriesModel.KalmanModelFit.filtered_state[1,x] for x in range(self.TimeseriesModel.KalmanModelFit.filtered_state.shape[1])]
         Trend=[x*np.linalg.norm(self.ts.data) for x in Trend]
@@ -256,7 +280,7 @@ class ChangePointDetector:
         ChangePoints=[1 if x in ChangePoints else 0 for x in range(len(gs_orig))]
         
         Results= ModuleResults(Trend=Trend,TrendVariance=TrendVariance,ChangePoints=ChangePoints,Prediction=Prediction,\
-                              ExtendedDates=ExtendedDates)
+                              PredictionVariance=PredictionVariance,ExtendedDates=ExtendedDates)
         
         return Results
     
