@@ -10,12 +10,13 @@
 
 In order to get a Kalman filter of a time series, plus change points in the trend, do the following:
 
-1. Prepare your time series as data plus Panda dates
-2. Create  the necessary Kalman representation by creating a "session" object by calling the ChangePoint class, e.g.:
-	Session=ChangePointDetector.ChangePointDetector(data,dates)
-3. Determine the changepoints by running the ChangePointDetectorFunction on your "session", e.g.
+1. from ChangePointDetector import ChangePointDetector 
+2. Prepare your time series as data plus Panda dates
+3. Create  the necessary Kalman representation by creating a "session" object by calling the ChangePoint class, e.g.:
+	Session=ChangePointDetector.ChangePointDetectorSession(data,dates). 'SeasonalityPeriods' is an optional input, e.g 12 = calendar month seasonality
+4. Determine the changepoints by running the ChangePointDetectorFunction on your "session", e.g.
 	Results=Session.ChangePointDetectorFunction()
-4. This will return a "Results" object that contains the following:
+5. This will return a "Results" object that contains the following:
 	- ChangePoints.  This is a list of 0s and 1s the length of the data, where 1s represent changepoints
 	- Prediction.  This is the Kalman smoothed actuals, plus a 3 period forecast.  Note no forecast will be made if there is a changepoint in the last 3 		dates
 	- PredictionVariance
