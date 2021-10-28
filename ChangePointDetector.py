@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Tue Oct  5 17:56:11 2021
+v0.8 28Oct21
 
 @author: Michael Hauptman
 
@@ -139,18 +140,18 @@ class MyKalmanFilter:
         NormalisedData=self.data
         kf_model=KalmanModel(NormalisedData,transition=self.StateArrays.transition,design=self.StateArrays.design)
         
-        start_params = [np.var(NormalisedData)**3, 0.1]  ##These settings will underfit the curve
+        start_params = [np.var(NormalisedData)**3, 0.1] #State convariance and observation covariance. These settings will underfit the curve
         kf_model_fit = kf_model.fit(start_params,maxiter = 20,method = 'bfgs', hessian= 'true')
         Growth=[kf_model_fit.filtered_state[0,x] for x in range(kf_model_fit.filtered_state.shape[1])]
-        Base=np.mean((NormalisedData-Growth))
+        Base=np.mean(abs(NormalisedData-Growth))
 
         Success=False
         i=3
-        while Success ==False and i>0:  #Iterate until fitting improves over underfit base case
+        while Success ==False and i>0:  #Increae state covariance until fitting improves over underfit base case
             start_params = [np.var(NormalisedData)**(i), 0.1]
             kf_model_fit = kf_model.fit(start_params,maxiter = 20,method = 'bfgs', hessian= 'true')
             Growth=[kf_model_fit.filtered_state[0,x] for x in range(kf_model_fit.filtered_state.shape[1])]
-            if np.mean((NormalisedData-Growth))/Base<.2:  
+            if np.mean(abs(NormalisedData-Growth))/Base<.3:  
                 Success =True
             i-=0.05
         
@@ -232,7 +233,8 @@ class ChangePointDetectorSession:
         #         print(f't{ t},m{ m},MD {MDout[t-m]}, EV_conditionalm {EV_conditionalm},PrLmOld {PrLmOld},PrLm, {PrLm},EV {EV}') 
                 PrLmOld=PrLm
                 EV_Old=EV
-            if   EV>0.95:  
+            #Changepoint if likelihood > 95% and no changepoints in last 2 periods
+            if   EV>0.95 and (t-(ChangePoint+1))>2:  
                 EV=1
                 ChangePoint=t-1
                 PrLmOld=0
@@ -279,8 +281,6 @@ class ChangePointDetectorSession:
             ExtendedDates=self.ts.dates
         
         Prediction=Prediction*np.linalg.norm(self.ts.data)
-        
-        
         PredictionVariance=PredictionVariance*np.linalg.norm(self.ts.data)
         
         Trend=[self.TimeseriesModel.KalmanModelFit.filtered_state[1,x] for x in range(self.TimeseriesModel.KalmanModelFit.filtered_state.shape[1])]
