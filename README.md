@@ -6,7 +6,9 @@
  For the change detector on the underlying trend we use another Kalman filter, this time a single period autoregression.  We then consider the Malhalanobis distance between that filter output, using a Gumbel distribution to decide where the increase in distance likely indicates a change in trend.  This implements the approach described by Lee & Roberts at
   https://www.robots.ox.ac.uk/~sjrob/Pubs/LeeRoberts_EVT.pdf
 
+This module is in PyPi, install via:  
 
+pip install ChangePointDetectorEVT
 
 In order to get a Kalman filter of a time series, plus change points in the trend, do the following:
 
