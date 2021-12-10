@@ -50,15 +50,13 @@ class TimeSeriesData:
             self.data=data
             self.dates=dates
             #Determine periodicity
-            Delta=(dates[1]-dates[0])
+            Delta=(dates[1]-dates[0]).days
             if Delta in range(27,32):
                 Period = "months"
-            elif Delta ==1:
-                Period = 'days'
             elif Delta ==7:
                 Period = 'weeks'
             else:
-                Period ="months"
+                Period ="days"
             self.Period=Period
 
             
@@ -100,7 +98,6 @@ class KalmanModel(MLEModel):
         self['transition']=transition
         self['design']=design
         self['selection']=np.eye(transition.shape[0])
-#         self.initialize_known(Mu, P)
         self.initialize_approximate_diffuse()
 
     def update(self, params, **kwargs):
@@ -113,7 +110,7 @@ class KalmanModel(MLEModel):
             
 def kgain(P, H, R):
     IS =  H @ P @ H.T + R # the Covariance of predictive mean of Y
-    K = P @ H.T @ inv(IS)
+    K = P @ H.T @ inv(IS) #State covariance in observation space divided by  Covariance of predictive mean of Y
     return K
 
 def MDCalc(X,Xold,P):
@@ -140,18 +137,20 @@ class MyKalmanFilter:
         NormalisedData=self.data
         kf_model=KalmanModel(NormalisedData,transition=self.StateArrays.transition,design=self.StateArrays.design)
         
-        start_params = [np.var(NormalisedData)**3, 0.1] #State convariance and observation covariance. These settings will underfit the curve
+        ObservationVar=0.1
+        start_params = [np.var(NormalisedData)**3, ObservationVar] #State transition convariance and observation covariance. These settings will underfit the curve
         kf_model_fit = kf_model.fit(start_params,maxiter = 20,method = 'bfgs', hessian= 'true')
         Growth=[kf_model_fit.filtered_state[0,x] for x in range(kf_model_fit.filtered_state.shape[1])]
         Base=np.mean(abs(NormalisedData-Growth))
 
         Success=False
         i=3
-        while Success ==False and i>0:  #Increae state covariance until fitting improves over underfit base case
-            start_params = [np.var(NormalisedData)**(i), 0.1]
+        while Success ==False and i>0:  #Increae state covariance until fitting improves over underfit base case against target
+            start_params = [np.var(NormalisedData)**(i), ObservationVar]
+            Target=0.3
             kf_model_fit = kf_model.fit(start_params,maxiter = 20,method = 'bfgs', hessian= 'true')
             Growth=[kf_model_fit.filtered_state[0,x] for x in range(kf_model_fit.filtered_state.shape[1])]
-            if np.mean(abs(NormalisedData-Growth))/Base<.3:  
+            if np.mean(abs(NormalisedData-Growth))/Base<Target:  
                 Success =True
             i-=0.05
         
@@ -177,7 +176,7 @@ class ChangePointDetectorSession:
     
     def ChangePointDetectorFunction(self):
     #This is the main function    
-        gs_orig=self.TimeseriesModel.KalmanModelFit.filtered_state[-1,:]  #Get underlying trend
+        gs_orig=self.TimeseriesModel.KalmanModel.smooth(self.ts.data).smoothed_state[-1,:]  #Get underlying trend
         gs=TimeSeriesData(gs_orig,self.ts.dates)
         OnePeriodRegressionModel=MyKalmanFilter(gs,SeasonalityPeriods=0)
         OnePeriodRegressionModel.InitialiseFilter()
@@ -281,7 +280,8 @@ class ChangePointDetectorSession:
             ExtendedDates=self.ts.dates
         
         Prediction=Prediction*np.linalg.norm(self.ts.data)
-        PredictionVariance=PredictionVariance*np.linalg.norm(self.ts.data)
+        PredictionVariance=PredictionVariance*(np.linalg.norm(self.ts.data)**2)
+#         PredictionVariance=PredictionVariance*Prediction
         
         Trend=[self.TimeseriesModel.KalmanModelFit.filtered_state[1,x] for x in range(self.TimeseriesModel.KalmanModelFit.filtered_state.shape[1])]
         Trend=[x*np.linalg.norm(self.ts.data) for x in Trend]
