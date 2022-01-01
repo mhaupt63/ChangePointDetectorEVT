@@ -14,7 +14,9 @@ INSTRUCTIONS:
 1. from ChangePointDetector import ChangePointDetector 
 2. Prepare your time series as data plus Panda dates
 3. Create  the necessary Kalman representation by creating a "session" object by calling the ChangePoint class, e.g.:
-	Session=ChangePointDetector.ChangePointDetectorSession(data,dates). 'SeasonalityPeriods' is an optional input, e.g 12 = calendar month seasonality
+	Session=ChangePointDetector.ChangePointDetectorSession(data,dates). 
+    - 'SeasonalityPeriods' is an optional input, e.g 12 = calendar month seasonality
+    - 'ForecastPeriods' is another optional input, indicating how many periods to forecast.  Default = 3
 4. Determine the changepoints by running the ChangePointDetectorFunction on your "session", e.g.
 	Results=Session.ChangePointDetectorFunction()
 5. This will return a "Results" object that contains the following:
@@ -50,18 +52,20 @@ class TimeSeriesData:
             self.data=data
             self.dates=dates
             #Determine periodicity
-            Delta=(dates[1]-dates[0]).days
+            Delta=(dates[1]-dates[0])
             if Delta in range(27,32):
                 Period = "months"
+            elif Delta ==1:
+                Period = 'days'
             elif Delta ==7:
                 Period = 'weeks'
             else:
-                Period ="days"
+                Period ="months"
             self.Period=Period
 
             
 class SeasonalStateArrays:
-    def __init__(self,endog,SeasonalityPeriods=1):
+    def __init__(self,SeasonalityPeriods):
         if SeasonalityPeriods ==0:
             A=np.diag(np.ones(1))
             H=np.ones(1)
@@ -69,27 +73,23 @@ class SeasonalStateArrays:
             A=np.array([[1,1],[0,1]])
             H=np.array([1,0])
         else:
-            B=np.zeros((SeasonalityPeriods,1))
-            C=-1*np.ones(SeasonalityPeriods+1)
+            A=np.diag(np.ones(SeasonalityPeriods+1))
+            B=np.zeros((SeasonalityPeriods+1,1))
+            C=-1*np.ones(SeasonalityPeriods+2)
             C[0]=0
             C[-1]=0
             A=np.hstack([A,B])
             A[0,-1]=1
-            D=np.zeros(SeasonalityPeriods+1)
+            D=np.zeros(SeasonalityPeriods+2)
             D[-1]=1
             A[-1,:]=D
             A=np.vstack([A[0,:],C,A[1:,:]]).astype('float')
-            H=np.zeros((SeasonalityPeriods+1))
+            H=np.zeros((SeasonalityPeriods+2))
             H[0]=1
             H[1]=1
-        P= 0.01*np.eye(SeasonalityPeriods+1)
-        Mu=np.zeros(SeasonalityPeriods+1)
-        Mu[0]=endog[0]
-
+        
         self.transition=A
         self.design=np.array([H])
-        self.Mu=Mu
-        self.P=P
         
 class KalmanModel(MLEModel):
     def __init__(self, endog, transition,design,**dates):
@@ -98,6 +98,7 @@ class KalmanModel(MLEModel):
         self['transition']=transition
         self['design']=design
         self['selection']=np.eye(transition.shape[0])
+
         self.initialize_approximate_diffuse()
 
     def update(self, params, **kwargs):
@@ -131,58 +132,56 @@ class MyKalmanFilter:
         self.data=NormalisedData
         self.dates=TS_Data.dates
         self.SeasonalityPeriods=SeasonalityPeriods
-        self.StateArrays=SeasonalStateArrays(self.data,SeasonalityPeriods)
+        self.StateArrays=SeasonalStateArrays(SeasonalityPeriods)
         
     def InitialiseFilter(self):
         NormalisedData=self.data
         kf_model=KalmanModel(NormalisedData,transition=self.StateArrays.transition,design=self.StateArrays.design)
         
-        ObservationVar=0.1
-        start_params = [np.var(NormalisedData)**3, ObservationVar] #State transition convariance and observation covariance. These settings will underfit the curve
+        start_params = [np.var(NormalisedData)**3, 0.1] #State convariance and observation covariance. These settings will underfit the curve
         kf_model_fit = kf_model.fit(start_params,maxiter = 20,method = 'bfgs', hessian= 'true')
         Growth=[kf_model_fit.filtered_state[0,x] for x in range(kf_model_fit.filtered_state.shape[1])]
         Base=np.mean(abs(NormalisedData-Growth))
 
         Success=False
         i=3
-        while Success ==False and i>0:  #Increae state covariance until fitting improves over underfit base case against target
-            start_params = [np.var(NormalisedData)**(i), ObservationVar]
-            Target=0.3
+        while Success ==False and i>0:  #Increae state covariance until fitting improves over underfit base case
+            start_params = [np.var(NormalisedData)**(i), 0.1]
             kf_model_fit = kf_model.fit(start_params,maxiter = 20,method = 'bfgs', hessian= 'true')
             Growth=[kf_model_fit.filtered_state[0,x] for x in range(kf_model_fit.filtered_state.shape[1])]
-            if np.mean(abs(NormalisedData-Growth))/Base<Target:  
+            if np.mean(abs(NormalisedData-Growth))/Base<.3:  
                 Success =True
             i-=0.05
         
         #Determine kalman gain
-        K_gain=np.zeros(self.SeasonalityPeriods+1)
-        for i in range(kf_model_fit.filtered_state.shape[1]):
-            P=kf_model_fit.filtered_state_cov[:,:,i]
-            KGain=kgain(P, kf_model['design'], kf_model['obs_cov'])
-            K_gain=np.vstack([K_gain,KGain.reshape([1,self.SeasonalityPeriods+1])[0]])
+#         K_gain=np.zeros(self.SeasonalityPeriods+1)
+#         for i in range(kf_model_fit.filtered_state.shape[1]):
+#             P=kf_model_fit.filtered_state_cov[:,:,i]
+#             KGain=kgain(P, kf_model['design'], kf_model['obs_cov'])
+#             K_gain=np.vstack([K_gain,KGain.reshape([1,self.SeasonalityPeriods+1])[0]])
             
         self.KalmanModel=kf_model
         self.KalmanModelFit=kf_model_fit
-        self.K_gain=K_gain
+#         self.K_gain=K_gain
         
 
    
 class ChangePointDetectorSession:
-    def __init__(self, data,dates, SeasonalityPeriods=1):
+    def __init__(self, data,dates, SeasonalityPeriods=1,ForecastPeriods=3):
         self.ts=TimeSeriesData(data,dates)
-        self.TimeseriesModel = MyKalmanFilter(self.ts)
+        self.TimeseriesModel = MyKalmanFilter(self.ts,SeasonalityPeriods)
         self.TimeseriesModel.InitialiseFilter()
         self.SeasonalityPeriods=SeasonalityPeriods
+        self.ForecastPeriods=ForecastPeriods
     
     def ChangePointDetectorFunction(self):
     #This is the main function    
-        gs_orig=self.TimeseriesModel.KalmanModel.smooth(self.ts.data).smoothed_state[-1,:]  #Get underlying trend
+        #Get underlying trend
+        gs_orig=self.TimeseriesModel.KalmanModelFit.filtered_state[-1,:]
         gs=TimeSeriesData(gs_orig,self.ts.dates)
         OnePeriodRegressionModel=MyKalmanFilter(gs,SeasonalityPeriods=0)
         OnePeriodRegressionModel.InitialiseFilter()
-        
-        #Capture variance
-        
+       
         
         MDout,MD_Prob = [],[]
         DF=1
@@ -194,8 +193,16 @@ class ChangePointDetectorSession:
                 Xold=X
             else:
                 Xold=OnePeriodRegressionModel.KalmanModelFit.filtered_state[:,i-1]
+            
+            #If variance = 0, adjust to be >0 else MD cannot be calculated
+            if P[0][0]==0:
+                PR=X[0]/1000
+            else:
+                PR=P[0][0]
+            PR=np.array([[PR]])    
+            
             try:
-                MD=MDCalc(X,Xold,P)
+                MD=MDCalc(X,Xold,PR)
             except:
                 MD=0
             MDPr=MD_ProbCalc(MD,DF)
@@ -227,18 +234,15 @@ class ChangePointDetectorSession:
                 else:
                     PrLm=(1-EV_Old)*PrLmOld
         
-                EV+=EV_conditionalm*PrLm
-        
-        #         print(f't{ t},m{ m},MD {MDout[t-m]}, EV_conditionalm {EV_conditionalm},PrLmOld {PrLmOld},PrLm, {PrLm},EV {EV}') 
+                EV+=EV_conditionalm*PrLm 
                 PrLmOld=PrLm
                 EV_Old=EV
-            #Changepoint if likelihood > 95% and no changepoints in last 2 periods
-            if   EV>0.95 and (t-(ChangePoint+1))>2:  
+            #Changepoint if likelihood > 95% and not in first few datapoints and no changepoints in last 3 periods
+            if   EV>0.95 and t>self.SeasonalityPeriods*2 and (t-(ChangePoint+1))>3:  
                 EV=1
                 ChangePoint=t-1
                 PrLmOld=0
                 EV_Old=1
-        #         print('Change at ',t,MD_Prob[t-1])
                 ChangePoints.append(ChangePoint)
         
             EVMT.append(EV)
@@ -249,22 +253,31 @@ class ChangePointDetectorSession:
             #Start with historical data
             Prediction=self.TimeseriesModel.KalmanModelFit.predict(0,len(self.ts.data))
             
-            #Take average of last 3 growth factors
-            Trend=[self.TimeseriesModel.KalmanModelFit.filtered_state[1,x] for x in range(self.TimeseriesModel.KalmanModelFit.filtered_state.shape[1])]
+            #Take average of last 3 growth factors or mostrecent, whatever is smaller
+            Trend=[self.TimeseriesModel.KalmanModelFit.filtered_state[-1,x] \
+                   for x in range(self.TimeseriesModel.KalmanModelFit.filtered_state.shape[1])]
             if abs(Trend[-1])<abs(sum(Trend[-3:])/3):
                 AverageGrowth=Trend[-1]
             else:
                 AverageGrowth=sum(Trend[-3:])/3                 
             
-            #Add forecast to historical data
-            for i in range(3):
-                Prediction=np.append(Prediction,Prediction[-1]+AverageGrowth)
+            #Get latest historical state
+            LastState=self.TimeseriesModel.KalmanModelFit.filtered_state[:,-1]
+            #Replace actual growth with average growth
+            LastState[-1]=AverageGrowth
             
-            #Prediction=self.TimeseriesModel.KalmanModelFit.predict(0,len(self.ts.data)+3)
+            
+            Transition=self.TimeseriesModel.StateArrays.transition
+            Design=self.TimeseriesModel.StateArrays.design
+            #Add forecast to historical data
+            for i in range(self.ForecastPeriods):
+                    LastState=Transition@LastState
+                    Prediction=np.append(Prediction,Design@LastState)
+
             #add extra dates
             
             Period= self.ts.Period
-            for i in range(0,3):
+            for i in range(0,self.ForecastPeriods):
                 if Period =="months":
                     NextDate=self.ts.dates[-1]+relativedelta(months=i+1)
                 elif Period == 'weeks':
@@ -273,21 +286,27 @@ class ChangePointDetectorSession:
                     NextDate=self.ts.dates[-1]+relativedelta(days=i+1)
                 ExtendedDates.append(NextDate)
                 
-            PredictionVariance=self.TimeseriesModel.KalmanModelFit.get_prediction(0,len(self.ts.data)+3).var_pred_mean
+            PredictionVariance=self.TimeseriesModel.KalmanModelFit.get_prediction(0,len(self.ts.data)+\
+                                                                                  self.ForecastPeriods).var_pred_mean
         else:
             Prediction=self.TimeseriesModel.KalmanModelFit.predict(0,len(self.ts.data))
             PredictionVariance=self.TimeseriesModel.KalmanModelFit.get_prediction(0,len(self.ts.data)).var_pred_mean
             ExtendedDates=self.ts.dates
         
         Prediction=Prediction*np.linalg.norm(self.ts.data)
-        PredictionVariance=PredictionVariance*(np.linalg.norm(self.ts.data)**2)
-#         PredictionVariance=PredictionVariance*Prediction
+        PredictionVariance=PredictionVariance*(np.linalg.norm(self.ts.data)**1)
         
         Trend=[self.TimeseriesModel.KalmanModelFit.filtered_state[1,x] for x in range(self.TimeseriesModel.KalmanModelFit.filtered_state.shape[1])]
         Trend=[x*np.linalg.norm(self.ts.data) for x in Trend]
         
-        TrendVariance=[self.TimeseriesModel.KalmanModelFit.filtered_state_cov[-1,-1,x] for x in range(self.TimeseriesModel.KalmanModelFit.filtered_state_cov.shape[2])]
-        TrendVariance=[x*np.linalg.norm(self.ts.data) for x in TrendVariance]
+        TrendVariance=[self.TimeseriesModel.KalmanModelFit.filtered_state_cov[-1,-1,x] \
+                       for x in range(self.TimeseriesModel.KalmanModelFit.filtered_state_cov.shape[2])]
+        TrendVariance=[x*np.linalg.norm(self.ts.data)**1 for x in TrendVariance]
+        
+        for i in range(self.SeasonalityPeriods+2):
+            PredictionVariance[i]=0
+            TrendVariance[i]=0
+
         
         ChangePoints=[1 if x in ChangePoints else 0 for x in range(len(gs_orig))]
         
@@ -295,4 +314,3 @@ class ChangePointDetectorSession:
                               PredictionVariance=PredictionVariance,ExtendedDates=ExtendedDates)
         
         return Results
-    
