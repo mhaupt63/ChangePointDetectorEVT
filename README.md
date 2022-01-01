@@ -29,4 +29,4 @@ In order to get a Kalman filter of a time series, plus change points in the tren
 	- TrendVariance.  Variance of the trend
 
 
-See "Trend.png" for an illustration of this module
+See "Trend.png" for an illustration of this module https://github.com/mhaupt63/ChangePointDetectorEVT/blob/main/Trend.png
