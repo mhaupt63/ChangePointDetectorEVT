@@ -27,3 +27,6 @@ In order to get a Kalman filter of a time series, plus change points in the tren
 	- ExtendedDates.  These are the original dates plus 3 exta for the forecast (if a forecast has been made)
 	- Trend.  This is the linear change factor
 	- TrendVariance.  Variance of the trend
+
+
+See "Trend.png" for an illustration of this module
