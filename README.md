@@ -15,8 +15,9 @@ In order to get a Kalman filter of a time series, plus change points in the tren
 1. from ChangePointDetector import ChangePointDetector 
 2. Prepare your time series as data plus Panda dates
 3. Create  the necessary Kalman representation by creating a "session" object by calling the ChangePoint class, e.g.:
-	Session=ChangePointDetector.ChangePointDetectorSession(data,dates). 'SeasonalityPeriods' is an optional input, e.g. if your data are sequentialmonths, 
-	"SeasonalityPeriods=12" indicates calendar month seasonality
+	Session=ChangePointDetector.ChangePointDetectorSession(data,dates). 
+	- 'SeasonalityPeriods' is an optional input, e.g. if your data are sequentialmonths, "SeasonalityPeriods=12" indicates calendar month seasonality
+	- 'ForecastPeriods' is another optional input, indicating how many periods to forecast.  Default = 3
 4. Determine the changepoints by running the ChangePointDetectorFunction on your "session", e.g.
 	Results=Session.ChangePointDetectorFunction()
 5. This will return a "Results" object that contains the following:
